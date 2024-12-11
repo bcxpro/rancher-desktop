@@ -178,14 +178,19 @@ func (proxy *ReverseProxy) forwardRequest(w http.ResponseWriter, r *http.Request
 // - Manages buffered data
 // - Enables bidirectional communication after protocol upgrade
 func (*ReverseProxy) handleUpgradedConnection(w http.ResponseWriter, backendConn net.Conn) {
-	// Create a ResponseController to safely hijack the connection
-	rc := http.NewResponseController(w)
+
+	// Cast writer to safely hijack the connection
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "client response writer does not support http.Hijacker", http.StatusInternalServerError)
+		return
+	}
 
 	// Hijack attempts to take control of the underlying connection
 	// Returns:
 	// - clientConn: The raw network connection
 	// - bufferedClientConn: A buffered reader/writer for any pending data
-	clientConn, bufferedClientConn, err := rc.Hijack()
+	clientConn, bufferedClientConn, err := hijacker.Hijack()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
