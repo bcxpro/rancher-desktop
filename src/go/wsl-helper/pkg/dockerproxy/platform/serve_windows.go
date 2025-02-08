@@ -73,25 +73,38 @@ func dialHvsock(vmGUID hvsock.GUID, port uint32) (net.Conn, error) {
 	return conn, nil
 }
 
-// Listen on the given Windows named pipe endpoint.
 func Listen(endpoint string) (net.Listener, error) {
-	const prefix = "npipe://"
+	const npipePrefix = "npipe://"
+	const tcpPrefix = "tcp://"
 
-	if !strings.HasPrefix(endpoint, prefix) {
-		return nil, fmt.Errorf("endpoint %s does not start with protocol %s", endpoint, prefix)
+	switch {
+	case strings.HasPrefix(endpoint, npipePrefix):
+		// Handle npipe endpoints
+
+		// Configure pipe in MessageMode to support Docker's half-close semantics
+		// - Enables zero-byte writes as EOF signals (CloseWrite)
+		// - Crucial for stdin stream termination in interactive containers
+		pipeConfig := &winio.PipeConfig{MessageMode: true}
+
+		listener, err := winio.ListenPipe(endpoint[len(npipePrefix):], pipeConfig)
+		if err != nil {
+			return nil, fmt.Errorf("could not listen on %s: %w", endpoint, err)
+		}
+
+		return listener, nil
+
+	case strings.HasPrefix(endpoint, tcpPrefix):
+		// Handle TCP endpoints
+		address := endpoint[len(tcpPrefix):]
+		listener, err := net.Listen("tcp", address)
+		if err != nil {
+			return nil, fmt.Errorf("could not listen on %s: %w", endpoint, err)
+		}
+		return listener, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported protocol in endpoint %s", endpoint)
 	}
-
-	// Configure pipe in MessageMode to support Docker's half-close semantics
-	// - Enables zero-byte writes as EOF signals (CloseWrite)
-	// - Crucial for stdin stream termination in interactive containers
-	pipeConfig := &winio.PipeConfig{MessageMode: true}
-
-	listener, err := winio.ListenPipe(endpoint[len(prefix):], pipeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("could not listen on %s: %w", endpoint, err)
-	}
-
-	return listener, nil
 }
 
 // ParseBindString parses a HostConfig.Binds entry, returning the (<host-src> or
